@@ -158,6 +158,26 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    name: "ee_comp_list_sources",
+    description:
+      "List the official data sources used by this MCP server, including URLs, data types, and update frequency.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "ee_comp_check_data_freshness",
+    description:
+      "Check when the database was last updated and how many records have been ingested.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 // --- Zod schemas for argument validation --------------------------------------
@@ -188,9 +208,20 @@ const GetMergerArgs = z.object({
 // --- Helper ------------------------------------------------------------------
 
 function textContent(data: unknown) {
+  const enriched =
+    typeof data === "object" && data !== null && !Array.isArray(data)
+      ? {
+          ...(data as Record<string, unknown>),
+          _meta: {
+            server: SERVER_NAME,
+            version: pkgVersion,
+            timestamp: new Date().toISOString(),
+          },
+        }
+      : data;
   return {
     content: [
-      { type: "text" as const, text: JSON.stringify(data, null, 2) },
+      { type: "text" as const, text: JSON.stringify(enriched, null, 2) },
     ],
   };
 }
@@ -236,7 +267,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!decision) {
           return errorContent(`Decision not found: ${parsed.case_number}`);
         }
-        const dec = decision as Record<string, unknown>;
+        const dec = decision as unknown as Record<string, unknown>;
         return textContent({
           ...dec,
           _citation: buildCitation(
@@ -266,7 +297,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!merger) {
           return errorContent(`Merger case not found: ${parsed.case_number}`);
         }
-        const m = merger as Record<string, unknown>;
+        const m = merger as unknown as Record<string, unknown>;
         return textContent({
           ...m,
           _citation: buildCitation(
@@ -297,6 +328,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             sectors: "Energy, telecommunications, transport, retail, financial services, media",
           },
           tools: TOOLS.map((t) => ({ name: t.name, description: t.description })),
+        });
+      }
+
+      case "ee_comp_list_sources": {
+        return textContent({
+          sources: [
+            {
+              id: "konkurentsiamet",
+              name: "Konkurentsiamet (Estonian Competition Authority)",
+              url: "https://www.konkurentsiamet.ee/",
+              data_types: ["enforcement_decisions", "merger_control", "sector_inquiries"],
+              language: "et",
+              update_frequency: "periodic",
+              authority_country: "EE",
+            },
+          ],
+        });
+      }
+
+      case "ee_comp_check_data_freshness": {
+        let ingestState: Record<string, unknown> = {};
+        try {
+          const raw = readFileSync(
+            join(__dirname, "..", "..", "data", "ingest-state.json"),
+            "utf8",
+          );
+          ingestState = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+          // ingest-state.json not available
+        }
+        return textContent({
+          last_ingest: ingestState["lastRun"] ?? null,
+          decisions_count: ingestState["decisionsIngested"] ?? null,
+          mergers_count: ingestState["mergersIngested"] ?? null,
+          status: ingestState["lastRun"] ? "ok" : "unknown",
         });
       }
 

@@ -30,6 +30,7 @@ import {
   getMerger,
   listSectors,
 } from "./db.js";
+import { buildCitation } from "./citation.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,23 +54,32 @@ const TOOLS = [
   {
     name: "ee_comp_search_decisions",
     description:
-      "Full-text search across Bundeskartellamt enforcement decisions (abuse of dominance, cartel, sector inquiries). Returns matching decisions with case number, parties, outcome, fine amount, and GWB articles cited.",
+      "Full-text search across ECA (Konkurentsiamet) enforcement decisions covering abuse of dominance, cartel enforcement, and sector inquiries under the Konkurentsiseadus (Competition Act). Returns matching decisions with case number, parties, outcome, fine amount, and legal basis cited.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        query: { type: "string", description: "Search query (e.g., 'Marktmissbrauch', 'Facebook', 'Preisabsprache')" },
+        query: {
+          type: "string",
+          description: "Search query (e.g., 'turgu valitsev seisund', 'kartell', 'hinnakokkulepe')",
+        },
         type: {
           type: "string",
           enum: ["abuse_of_dominance", "cartel", "merger", "sector_inquiry"],
           description: "Filter by decision type. Optional.",
         },
-        sector: { type: "string", description: "Filter by sector ID. Optional." },
+        sector: {
+          type: "string",
+          description: "Filter by sector ID (e.g., 'energy', 'telecommunications', 'transport'). Optional.",
+        },
         outcome: {
           type: "string",
           enum: ["prohibited", "cleared", "cleared_with_conditions", "fine"],
           description: "Filter by outcome. Optional.",
         },
-        limit: { type: "number", description: "Max results (default 20)." },
+        limit: {
+          type: "number",
+          description: "Maximum number of results to return. Defaults to 20.",
+        },
       },
       required: ["query"],
     },
@@ -77,11 +87,14 @@ const TOOLS = [
   {
     name: "ee_comp_get_decision",
     description:
-      "Get a specific Bundeskartellamt decision by case number (e.g., 'B6-22/16').",
+      "Get a specific ECA decision by case number (e.g., '5-5/2023', '5-1/2022').",
     inputSchema: {
       type: "object" as const,
       properties: {
-        case_number: { type: "string", description: "Case number (e.g., 'B6-22/16', 'B2-94/12')" },
+        case_number: {
+          type: "string",
+          description: "ECA case number (e.g., '5-5/2023', '5-1/2022')",
+        },
       },
       required: ["case_number"],
     },
@@ -89,18 +102,27 @@ const TOOLS = [
   {
     name: "ee_comp_search_mergers",
     description:
-      "Search Bundeskartellamt merger control decisions (Fusionskontrolle).",
+      "Search ECA merger control decisions (koondumise kontroll). Returns merger cases with acquiring party, target, sector, and outcome.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        query: { type: "string", description: "Search query (e.g., 'Vonovia', 'Energieversorgung')" },
-        sector: { type: "string", description: "Filter by sector ID. Optional." },
+        query: {
+          type: "string",
+          description: "Search query (e.g., 'koondumine energeetika', 'telekomiturg', 'jaekaubandus')",
+        },
+        sector: {
+          type: "string",
+          description: "Filter by sector ID (e.g., 'energy', 'telecommunications', 'retail'). Optional.",
+        },
         outcome: {
           type: "string",
           enum: ["cleared", "cleared_phase1", "cleared_with_conditions", "prohibited"],
           description: "Filter by merger outcome. Optional.",
         },
-        limit: { type: "number", description: "Max results (default 20)." },
+        limit: {
+          type: "number",
+          description: "Maximum number of results to return. Defaults to 20.",
+        },
       },
       required: ["query"],
     },
@@ -108,11 +130,14 @@ const TOOLS = [
   {
     name: "ee_comp_get_merger",
     description:
-      "Get a specific merger control decision by case number (e.g., 'B1-35/21').",
+      "Get a specific ECA merger control decision by case number (e.g., 'KO-1/2023').",
     inputSchema: {
       type: "object" as const,
       properties: {
-        case_number: { type: "string", description: "Merger case number (e.g., 'B1-35/21')" },
+        case_number: {
+          type: "string",
+          description: "ECA merger case number (e.g., 'KO-1/2023')",
+        },
       },
       required: ["case_number"],
     },
@@ -120,13 +145,25 @@ const TOOLS = [
   {
     name: "ee_comp_list_sectors",
     description:
-      "List all sectors with Bundeskartellamt enforcement activity, including decision and merger counts.",
+      "List all sectors with ECA enforcement activity, including decision counts and merger counts per sector.",
     inputSchema: { type: "object" as const, properties: {}, required: [] },
   },
   {
     name: "ee_comp_about",
     description:
       "Return metadata about this MCP server: version, data source, coverage, and tool list.",
+    inputSchema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "ee_comp_list_sources",
+    description:
+      "List the official data sources used by this MCP server, including URLs, data types, and update frequency.",
+    inputSchema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "ee_comp_check_data_freshness",
+    description:
+      "Check when the database was last updated and how many records have been ingested.",
     inputSchema: { type: "object" as const, properties: {}, required: [] },
   },
 ];
@@ -172,8 +209,19 @@ function createMcpServer(): Server {
     const { name, arguments: args = {} } = request.params;
 
     function textContent(data: unknown) {
+      const enriched =
+        typeof data === "object" && data !== null && !Array.isArray(data)
+          ? {
+              ...(data as Record<string, unknown>),
+              _meta: {
+                server: SERVER_NAME,
+                version: pkgVersion,
+                timestamp: new Date().toISOString(),
+              },
+            }
+          : data;
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text" as const, text: JSON.stringify(enriched, null, 2) }],
       };
     }
 
@@ -204,7 +252,17 @@ function createMcpServer(): Server {
           if (!decision) {
             return errorContent(`Decision not found: ${parsed.case_number}`);
           }
-          return textContent(decision);
+          const dec = decision as unknown as Record<string, unknown>;
+          return textContent({
+            ...dec,
+            _citation: buildCitation(
+              String(dec["case_number"] ?? parsed.case_number),
+              String(dec["title"] ?? dec["case_number"] ?? parsed.case_number),
+              "ee_comp_get_decision",
+              { case_number: parsed.case_number },
+              dec["url"] != null ? String(dec["url"]) : undefined,
+            ),
+          });
         }
 
         case "ee_comp_search_mergers": {
@@ -224,7 +282,17 @@ function createMcpServer(): Server {
           if (!merger) {
             return errorContent(`Merger case not found: ${parsed.case_number}`);
           }
-          return textContent(merger);
+          const m = merger as unknown as Record<string, unknown>;
+          return textContent({
+            ...m,
+            _citation: buildCitation(
+              String(m["case_number"] ?? parsed.case_number),
+              String(m["title"] ?? m["case_number"] ?? parsed.case_number),
+              "ee_comp_get_merger",
+              { case_number: parsed.case_number },
+              m["url"] != null ? String(m["url"]) : undefined,
+            ),
+          });
         }
 
         case "ee_comp_list_sectors": {
@@ -237,9 +305,49 @@ function createMcpServer(): Server {
             name: SERVER_NAME,
             version: pkgVersion,
             description:
-              "Bundeskartellamt (German Federal Cartel Office) MCP server. Provides access to German competition law enforcement decisions, merger control cases, and sector enforcement data under the GWB (Gesetz gegen Wettbewerbsbeschränkungen).",
-            data_source: "Bundeskartellamt (https://www.bundeskartellamt.de/)",
+              "ECA (Konkurentsiamet — Estonian Competition Authority) MCP server. Provides access to Estonian competition law enforcement decisions, merger control cases, and sector enforcement data under the Konkurentsiseadus (Competition Act).",
+            data_source: "Konkurentsiamet (https://www.konkurentsiamet.ee/)",
+            coverage: {
+              decisions: "Abuse of dominance, cartel enforcement, and sector inquiries under Konkurentsiseadus",
+              mergers: "Merger control decisions (koondumise kontroll) — Phase I and Phase II",
+              sectors: "Energy, telecommunications, transport, retail, financial services, media",
+            },
             tools: TOOLS.map((t) => ({ name: t.name, description: t.description })),
+          });
+        }
+
+        case "ee_comp_list_sources": {
+          return textContent({
+            sources: [
+              {
+                id: "konkurentsiamet",
+                name: "Konkurentsiamet (Estonian Competition Authority)",
+                url: "https://www.konkurentsiamet.ee/",
+                data_types: ["enforcement_decisions", "merger_control", "sector_inquiries"],
+                language: "et",
+                update_frequency: "periodic",
+                authority_country: "EE",
+              },
+            ],
+          });
+        }
+
+        case "ee_comp_check_data_freshness": {
+          let ingestState: Record<string, unknown> = {};
+          try {
+            const raw = readFileSync(
+              join(__dirname, "..", "..", "data", "ingest-state.json"),
+              "utf8",
+            );
+            ingestState = JSON.parse(raw) as Record<string, unknown>;
+          } catch {
+            // ingest-state.json not available; return what we know
+          }
+          return textContent({
+            last_ingest: ingestState["lastRun"] ?? null,
+            decisions_count: ingestState["decisionsIngested"] ?? null,
+            mergers_count: ingestState["mergersIngested"] ?? null,
+            status: ingestState["lastRun"] ? "ok" : "unknown",
           });
         }
 

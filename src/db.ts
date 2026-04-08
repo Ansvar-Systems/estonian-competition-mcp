@@ -1,9 +1,9 @@
 /**
- * SQLite database access layer for the Bundeskartellamt MCP server.
+ * SQLite database access layer for the ECA (Konkurentsiamet) MCP server.
  *
  * Schema:
- *   - decisions    — Bundeskartellamt enforcement decisions (abuse of dominance, cartels, sector inquiries)
- *   - mergers      — Merger control decisions (Fusionskontrolle)
+ *   - decisions    — ECA enforcement decisions (abuse of dominance, cartels, sector inquiries)
+ *   - mergers      — Merger control decisions (koondumise kontroll)
  *   - sectors      — Sectors with enforcement activity
  *
  * FTS5 virtual tables back full-text search on decisions and mergers.
