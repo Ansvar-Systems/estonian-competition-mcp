@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "authority": {
+    "id": "konkurentsiamet",
+    "name": "Konkurentsiamet",
+    "name_en": "Estonian Competition Authority",
+    "abbreviation": "ECA",
+    "country": "EE",
+    "url": "https://www.konkurentsiamet.ee/",
+    "legal_basis": "Konkurentsiseadus (Competition Act)"
+  },
+  "coverage": {
+    "decisions": {
+      "types": ["abuse_of_dominance", "cartel", "sector_inquiry"],
+      "count_approx": 197,
+      "last_updated": "2026-03-23T15:42:53.550Z",
+      "language": "et",
+      "notes": "Enforcement decisions under Konkurentsiseadus"
+    },
+    "mergers": {
+      "types": ["cleared", "cleared_phase1", "cleared_with_conditions", "prohibited"],
+      "count_approx": 0,
+      "last_updated": null,
+      "notes": "Merger control (koondumise kontroll) ingestion in progress"
+    },
+    "sectors": [
+      "energy",
+      "telecommunications",
+      "transport",
+      "retail",
+      "financial_services",
+      "media"
+    ]
+  },
+  "data_source": {
+    "url": "https://www.konkurentsiamet.ee/",
+    "license": "Official government publication — public domain",
+    "update_frequency": "periodic",
+    "ingestion_script": "scripts/ingest-ka.ts"
+  },
+  "mcp_server": {
+    "name": "estonian-competition-mcp",
+    "npm_package": "@ansvar/estonian-competition-mcp",
+    "tools_count": 8,
+    "tools": [
+      "ee_comp_search_decisions",
+      "ee_comp_get_decision",
+      "ee_comp_search_mergers",
+      "ee_comp_get_merger",
+      "ee_comp_list_sectors",
+      "ee_comp_about",
+      "ee_comp_list_sources",
+      "ee_comp_check_data_freshness"
+    ]
+  }
+}

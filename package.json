@@ -43,8 +43,11 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/http-server.ts",
     "start": "node dist/src/http-server.js",
+    "test": "tsc --noEmit -p tsconfig.json",
     "seed": "npx tsx scripts/seed-sample.ts",
     "ingest": "npx tsx scripts/ingest-ka.ts",
+    "build:db": "npx tsx scripts/seed-sample.ts",
+    "check-updates": "npx tsx scripts/ingest-ka.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit"
   },
