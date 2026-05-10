@@ -5,15 +5,26 @@
 # The image expects a pre-built database at /app/data/eca.db.
 # Override with ECA_DB_PATH for a custom location.
 
-# --- Stage 1: Build TypeScript ---
+# --- Stage 1: Build TypeScript + native modules ---
 FROM node:20-slim AS builder
 
 WORKDIR /app
+
+# Install build toolchain for better-sqlite3 native binding
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+# Run full install (postinstall builds better-sqlite3 .node binding)
+RUN npm ci
+
 COPY tsconfig.json ./
 COPY src/ src/
 RUN npm run build
+
+# Prune to production deps while preserving the built native binding
+RUN npm prune --omit=dev
 
 # --- Stage 2: Production ---
 FROM node:20-slim AS production
@@ -23,9 +34,12 @@ ENV NODE_ENV=production
 ENV ECA_DB_PATH=/app/data/eca.db
 
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-
+# Bring node_modules (with pre-built native bindings) from builder
+COPY --from=builder /app/node_modules/ node_modules/
 COPY --from=builder /app/dist/ dist/
+
+# Bring the database asset (provisioned by CI from GitHub Release)
+COPY data/database.db data/eca.db
 
 # Non-root user for security
 RUN addgroup --system --gid 1001 mcp && \
